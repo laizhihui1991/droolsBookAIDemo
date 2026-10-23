@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>智能业务规则管理平台</title>
+<link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+<script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+<script src="https://unpkg.com/element-plus/dist/index.full.js"></script>
+<script src="https://unpkg.com/element-plus/dist/locale/zh-cn"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: "PingFang SC","Microsoft YaHei",sans-serif; background:#f5f7fa; }
+#app { display:flex; height:100vh; }
+.sidebar { width:180px; background:#001529; color:#fff; padding:16px 0; }
+.sidebar .logo { font-weight:700; padding:0 20px 16px; font-size:15px; border-bottom:1px solid #1a3a5c; margin-bottom:8px;}
+.menu-item { padding:10px 20px; cursor:pointer; font-size:13px; }
+.menu-item:hover { background:#1a3a5c; }
+.menu-item.active { background:#1890ff; }
+.main { flex:1; padding:16px; overflow:auto; }
+.card { background:#fff; border-radius:6px; padding:14px; margin-bottom:12px; box-shadow:0 1px 3px rgba(0,0,0,.08);}
+.card h3 { font-size:14px; margin-bottom:10px; color:#333; }
+.row { display:flex; gap:12px; }
+.row > div { flex:1; }
+.chat-box { height:400px; overflow:auto; border:1px solid #e4e7ed; border-radius:4px; padding:10px; background:#fafafa;}
+.msg { margin-bottom:10px; max-width:85%; }
+.msg.user { text-align:right; }
+.msg.user .bubble { background:#1890ff; color:#fff; display:inline-block; padding:8px 12px; border-radius:8px; }
+.msg.assistant .bubble { background:#fff; border:1px solid #e4e7ed; padding:8px 12px; border-radius:8px; display:inline-block; white-space:pre-wrap; text-align:left;}
+.code { width:100%; font-family:Consolas,Monaco,monospace; font-size:12px; border:1px solid #dcdfe6; border-radius:4px; padding:8px; resize:vertical;}
+/* 业务流程卡片 */
+.flow-container { padding:10px 0;}
+.flow-badge { display:inline-block; padding:3px 10px; border-radius:12px; font-size:11px; font-weight:600; margin-right:6px;}
+.flow-if { background:#fff7e6; color:#d48806; border:1px solid #ffd591;}
+.flow-then { background:#f6ffed; color:#52c41a; border:1px solid #b7eb8f;}
+.flow-result { background:#e6f7ff; color:#1890ff; border:1px solid #91d5ff;}
+.rule-flow-card { border:1px solid #e8e8e8; border-radius:8px; margin-bottom:16px; overflow:hidden;}
+.rule-flow-head { background:#fafafa; padding:10px 14px; border-bottom:1px solid #e8e8e6; display:flex; align-items:center;}
+.rule-flow-body { padding:0;}
+.flow-step { padding:10px 14px; display:flex; align-items:flex-start; gap:8px;}
+.flow-step.if-step { background:#fffbe6; border-bottom:1px dashed #e8e8e6;}
+.flow-step.then-step { background:#f6ffed;}
+.flow-arrow { text-align:center; color:#bbb; font-size:18px; line-height:1; padding:2px 0; background:inherit;}
+pre.drl-block { margin:0; font-size:12px; font-family:Consolas; background:#fff; padding:8px; border-radius:4px; white-space:pre-wrap; word-break:break-all; flex:1;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="sidebar">
+    <div class="logo">🧩 Drools+LLM 规则平台</div>
+    <div class="menu-item" :class="{active:tab==='entity'}" @click="tab='entity'">📦 实体说明</div>
+    <div class="menu-item" :class="{active:tab==='llm'}" @click="tab='llm'">💬 LLM对话生成</div>
+    <div class="menu-item" :class="{active:tab==='designer'}" @click="tab='designer'">📐 规则设计器</div>
+    <div class="menu-item" :class="{active:tab==='test'}" @click="tab='test'">🧪 测试验证</div>
+    <div class="menu-item" :class="{active:tab==='audit'}" @click="tab='audit'">✅ 审核发布</div>
+  </div>
+
+  <div class="main">
+
+    <!-- ========== 实体说明 ========== -->
+    <div v-show="tab==='entity'">
+      <div class="card">
+        <h3>可用业务实体 <span style="font-weight:normal;color:#999;font-size:12px">（系统预置，Drools 编译时直接可引用）</span></h3>
+        <el-row :gutter="12">
+          <el-col :span="8" v-for="e in builtinEntities" :key="e.className" style="margin-bottom:12px">
+            <div style="border:1px solid #dcdfe6;border-radius:6px;padding:12px;height:100%">
+              <div style="font-weight:600;color:#1890f;margin-bottom:6px">📦 {{e.className}}
+                <span style="font-weight:normal;color:#999;font-size:11px;margin-left:6px">{{e.comment}}</span>
+              </div>
+              <div style="font-size:11px;color:#999;margin-bottom:8px;font-family:Consolas">{{e.packageName}}</div>
+              <el-table :data="e.fields" size="mini" border>
+                <el-table-column prop="name" label="字段" width="90"/>
+                <el-table-column prop="type" label="类型" width="100"/>
+                <el-table-column prop="comment" label="说明"/>
+              </el-table>
+            </div>
+          </el-col>
+        </el-row>
+      </div>
+    </div>
+
+    <!-- ========== LLM 对话生成 ========== -->
+    <div v-show="tab==='llm'">
+      <div class="row">
+        <div style="flex:1.2">
+          <div class="card">
+            <h3>业务对话 <span style="font-weight:normal;color:#999;font-size:12px">用自然语言描述规则，AI 生成规则JSON</span></h3>
+            <div class="chat-box" ref="chatBoxEl">
+              <div v-for="(m,i) in chatMessages" :key="i" class="msg" :class="m.role">
+                <div class="bubble">{{m.content}}</div>
+              </div>
+            </div>
+            <div style="margin-top:10px;display:flex;gap:8px">
+              <input v-model="chatInput" placeholder="例如：VIP用户订单满1000打9折" 
+                @keyup.enter="sendChat"
+                style="flex:1;padding:8px 12px;border:1px solid #dcdfe6;border-radius:4px;font-size:13px"/>
+              <button @click="sendChat" :disabled="llmLoading"
+                style="padding:8px 20px;background:#1890ff;color:#fff;border:none;border-radius:4px;font-size:13px;cursor:pointer">
+                {{llmLoading ? '...' : '发送'}}
+              </button>
+            </div>
+          </div>
+        </div>
+        <div style="flex:1">
+          <div class="card">
+            <h3>生成的规则JSON草案</h3>
+            <pre class="code" style="height:420px;overflow:auto">{{llmDraftJson || '（等待LLM生成...）'}}</pre>
+            <button @click="applyDraft" :disabled="!llmDraftJson"
+              style="margin-top:10px;width:100%;padding:10px;background:#67c23a;color:#fff;border:none;border-radius:4px;font-size:14px;cursor:pointer">
+              📐 进入规则设计器
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== 规则设计器 ========== -->
+    <div v-show="tab==='designer'">
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <h3 style="margin:0">规则设计器</h3>
+          <div>
+            <el-button size="small" type="primary" @click="doValidate">🔍 语法校验</el-button>
+            <el-button size="small" type="success" @click="tab='test'">🧪 去测试验证 →</el-button>
+          </div>
+        </div>
+        <el-radio-group v-model="designerTab" size="small" style="margin-top:10px">
+          <el-radio-button value="flow">🧩 业务流程视图</el-radio-button>
+          <el-radio-button value="json">📄 JSON源码</el-radio-button>
+          <el-radio-button value="drl">⚙️ DRL规则源码</el-radio-button>
+        </el-radio-group>
+
+        <!-- 业务流程视图 -->
+        <div v-if="designerTab==='flow'" class="flow-container" style="margin-top:10px">
+          <div v-if="!ruleModel.rules || !ruleModel.rules.length" style="color:#999;text-align:center;padding:60px">
+            暂无规则，请先在「LLM对话生成」页面描述业务规则
+          </div>
+          <div v-for="(r,i) in ruleModel.rules" :key="i" class="rule-flow-card">
+            <div class="rule-flow-head">
+              <el-tag size="small" :type="r.enabled!==false?'success':'info'">{{r.enabled!==false?'启用':'停用'}}</el-tag>
+              <strong style="margin:0 10px">{{r.name}}</strong>
+              <el-tag size="mini" type="warning">优先级 {{r.salience||0}}</el-tag>
+              <span style="font-size:12px;color:#999;margin-left:10px">{{r.comment}}</span>
+            </div>
+            <div class="rule-flow-body">
+              <div class="flow-step if-step">
+                <span class="flow-badge flow-if">IF 条件满足</span>
+                <pre class="drl-block">{{r.when}}</pre>
+              </div>
+              <div class="flow-arrow">▼</div>
+              <div class="flow-step then-step">
+                <span class="flow-badge flow-then">THEN 执行动作</span>
+                <pre class="drl-block">{{r.then}}</pre>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- JSON源码 -->
+        <div v-if="designerTab==='json'" style="margin-top:10px">
+          <el-button size="mini" @click="applyJsonSource">应用JSON</el-button>
+          <textarea class="code" style="height:450px" v-model="jsonSourceText"></textarea>
+        </div>
+
+        <!-- DRL规则源码 -->
+        <div v-if="designerTab==='drl'" style="margin-top:10px">
+          <pre class="code" style="height:450px;background:#ffffff;color:#333333">{{drlPreview || '（点语法校验后生成DRL）'}}</pre>
+        </div>
+
+        <!-- 校验结果 -->
+        <div v-if="validateResult" style="margin-top:10px;font-size:13px">
+          <el-tag :type="validateResult.syntaxOk?'success':'danger'">语法{{validateResult.syntaxOk?'通过':'失败'}}</el-tag>
+          <el-tag type="warning" style="margin-left:6px">冲突 {{validateResult.conflictCount||0}}</el-tag>
+          <div v-if="validateResult.syntaxError" style="color:#f56c6c;margin-top:6px;white-space:pre-wrap;font-size:12px">{{validateResult.syntaxError}}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== 测试验证 ========== -->
+    <div v-show="tab==='test'">
+      <div class="row">
+        <div style="flex:1">
+          <div class="card">
+            <h3>第一步：输入测试场景</h3>
+            <textarea v-model="testScenario" rows="3"
+              placeholder="例如：一个VIP用户来家二少，今日消费1300元；一个普通用户上官无极，今日消费3450元"
+              style="width:100%;padding:8px;border:1px solid #dcdfe6;border-radius:4px;font-size:13px;box-sizing:border-box"></textarea>
+            <button @click="generateTestFacts" :disabled="testLoading"
+              style="margin-top:12px;width:100%;padding:14px;background:#1890ff;color:#fff;border:2px solid #1890ff;border-radius:4px;font-size:16px;cursor:pointer;display:block">
+              {{testLoading ? '🤖 LLM生成中...' : '🤖 点击生成测试事实'}}
+            </button>
+          </div>
+          <div class="card">
+            <h3>第二步：测试事实（只读）</h3>
+            <pre v-if="testLoading" style="color:#999;padding:20px;text-align:center">🤖 LLM正在生成测试数据...</pre>
+            <pre v-else-if="testFactsText" class="code" style="height:220px;overflow:auto;background:#f5f7fa">{{testFactsText}}</pre>
+            <div v-else style="color:#bbb;padding:20px;text-align:center">生成后显示测试事实</div>
+            <button @click="runTest" :disabled="!testFactsText || testLoading"
+              style="margin-top:10px;width:100%;padding:10px;background:#67c23a;color:#fff;border:none;border-radius:4px;font-size:14px;cursor:pointer">
+              ▶️ 执行规则
+            </button>
+          </div>
+        </div>
+        <div style="flex:1">
+          <div class="card">
+            <h3>执行结果</h3>
+            <div v-if="!testResult" style="color:#999">执行后展示命中规则数和事实变化</div>
+            <template v-else>
+              <el-alert :title="'命中规则数：'+testResult.firedRules" :type="testResult.firedRules>0?'success':'info'" style="margin-bottom:10px"/>
+              <h4 style="font-size:13px;margin:8px 0">执行前</h4>
+              <pre class="code" style="height:150px;overflow:auto">{{testResult.beforeSnapshot}}</pre>
+              <h4 style="font-size:13px;margin:8px 0">执行后</h4>
+              <pre class="code" style="height:150px;overflow:auto">{{testResult.afterSnapshot}}</pre>
+            </template>
+          </div>
+          <!-- 执行通过后弹出审批发布 -->
+          <div class="card" v-if="testResult && testResult.firedRules > 0" style="border:2px solid #67c23a">
+            <h3 style="color:#67c23a">✅ 规则执行正常，可发布</h3>
+            <input v-model="auditRemark" placeholder="版本备注（可选）"
+              style="width:100%;padding:8px 12px;border:1px solid #dcdfe6;border-radius:4px;font-size:13px;margin-bottom:10px;box-sizing:border-box"/>
+            <button @click="submitForAudit" :disabled="auditLoading"
+              style="width:100%;padding:10px;background:#1890ff;color:#fff;border:none;border-radius:4px;font-size:14px;cursor:pointer">
+              📤 确认发布，保存到数据库
+            </button>
+            <el-alert v-if="auditMsg" :title="auditMsg" type="success" style="margin-top:10px"/>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== 审核发布 ========== -->
+    <div v-show="tab==='audit'">
+      <div class="card">
+        <h3>审核发布</h3>
+        <p style="font-size:13px;color:#666;margin-bottom:10px">确认规则校验通过、测试结果符合预期后，提交审核并发布。</p>
+        <el-input v-model="auditRemark" placeholder="版本备注（可选）" style="margin-bottom:10px"/>
+        <el-button type="primary" :loading="auditLoading" @click="submitForAudit">📤 提交审核并发布</el-button>
+        <el-alert v-if="auditMsg" :title="auditMsg" type="success" style="margin-top:10px"/>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const {createApp, ref, reactive, onMounted, watch} = Vue;
+
+const app = createApp({
+  setup() {
+    const tab = ref('llm');
+    const builtinEntities = ref([]);
+
+    // ---- LLM对话 ----
+    const chatMessages = ref([{role:'assistant', content:'你好！请用自然语言描述你需要的业务规则，例如："VIP用户订单满1000打9折"'}]);
+    const chatInput = ref('');
+    const llmLoading = ref(false);
+    const llmDraftJson = ref('');
+
+    // ---- 规则设计器 ----
+    const designerTab = ref('flow');
+    const ruleModel = reactive({packageName:'rules.marketing', imports:[], globals:[], functions:[], queries:[], rules:[]});
+    const jsonSourceText = ref('');
+    const drlPreview = ref('');
+    const validateResult = ref(null);
+
+    // ---- 测试 ----
+    const testScenario = ref('');
+    const testFactsText = ref('');
+    const testResult = ref(null);
+    const testLoading = ref(false);
+
+    // ---- 审核 ----
+    const auditRemark = ref('');
+    const auditLoading = ref(false);
+    const auditMsg = ref('');
+
+    async function api(url, opts={}) {
+      const r = await fetch(url, {
+        headers: {'Content-Type':'application/json'},
+        ...opts
+      });
+      const j = await r.json();
+      if (j.code !== 200) throw new Error(j.message || '请求失败');
+      return j;
+    }
+
+    async function loadBuiltin() {
+      try {
+        const r = await api('/api/builtin/entities');
+        builtinEntities.value = r.data || [];
+      } catch(e) {}
+    }
+
+    async function sendChat() {
+      if (!chatInput.value.trim()) return;
+      const q = chatInput.value.trim();
+      chatMessages.value.push({role:'user', content:q});
+      chatInput.value = '';
+      llmLoading.value = true;
+      // 先推一条"正在生成"的消息
+      chatMessages.value.push({role:'assistant', content:'⏳ 业务正在生成，请稍后...', pending:true});
+      try {
+        const r = await api('/api/llm/generate', {method:'POST', body: JSON.stringify({businessDesc:q})});
+        llmDraftJson.value = r.data;
+        // 更新最后一条消息（把pending的"正在生成"替换成完成提示）
+        chatMessages.value[chatMessages.value.length-1].content = '✅ 已生成规则JSON，右侧可查看。点「进入规则设计器」继续编辑/校验/测试。';
+        chatMessages.value[chatMessages.value.length-1].pending = false;
+      } catch(e) {
+        chatMessages.value[chatMessages.value.length-1].content = '❌ 生成失败：'+e.message;
+      } finally {
+        llmLoading.value = false;
+      }
+    }
+
+    function applyDraft() {
+      try {
+        const m = JSON.parse(llmDraftJson.value);
+        Object.assign(ruleModel, {
+          packageName: m.package || m.packageName || 'rules.marketing',
+          imports: m.imports || [],
+          globals: m.globals || [],
+          functions: m.functions || [],
+          queries: m.queries || [],
+          rules: m.rules || []
+        });
+        syncJsonSource();
+        tab.value = 'designer';
+      } catch(e) {
+        ElementPlus.ElMessage.error('JSON解析失败: '+e.message);
+      }
+    }
+
+    function syncJsonSource() {
+      jsonSourceText.value = JSON.stringify(ruleModel, null, 2);
+    }
+
+    function applyJsonSource() {
+      try {
+        const m = JSON.parse(jsonSourceText.value);
+        Object.assign(ruleModel, {
+          packageName: m.package || m.packageName || ruleModel.packageName,
+          imports: m.imports || [],
+          rules: m.rules || []
+        });
+        ElementPlus.ElMessage.success('已应用');
+      } catch(e) {
+        ElementPlus.ElMessage.error('JSON错误: '+e.message);
+      }
+    }
+
+    async function doValidate() {
+      syncJsonSource();
+      try {
+        const r = await api('/api/rule/validate', {method:'POST', body: jsonSourceText.value});
+        validateResult.value = r.data;
+        drlPreview.value = r.data.drl || '';
+      } catch(e) {
+        ElementPlus.ElMessage.error('校验失败: '+e.message);
+      }
+    }
+
+    async function generateTestFacts() {
+      if (!testScenario.value.trim()) return;
+      testLoading.value = true;
+      try {
+        const r = await api('/api/llm/testcase/generate', {method:'POST', body: JSON.stringify({scenario: testScenario.value})});
+        testFactsText.value = JSON.stringify(r.data, null, 2);
+      } catch(e) {
+        ElementPlus.ElMessage.error(e.message);
+      } finally {
+        testLoading.value = false;
+      }
+    }
+
+    async function runTest() {
+      doValidate();
+      // 直接用当前ruleJson + testFacts 执行沙箱
+      try {
+        syncJsonSource();
+        const facts = JSON.parse(testFactsText.value);
+        const r = await api('/api/testcase/run-direct', {
+          method:'POST',
+          body: JSON.stringify({ruleJson: jsonSourceText.value, facts: facts})
+        });
+        testResult.value = r.data;
+      } catch(e) {
+        ElementPlus.ElMessage.error('执行失败: '+e.message);
+      }
+    }
+
+    async function submitForAudit() {
+      auditLoading.value = true;
+      try {
+        syncJsonSource();
+        await api('/api/rule/save-direct', {
+          method:'POST',
+          body: JSON.stringify({ruleJson: jsonSourceText.value, remark: auditRemark.value})
+        });
+        auditMsg.value = '规则已保存并发布到数据库';
+      } catch(e) {
+        ElementPlus.ElMessage.error(e.message);
+      } finally {
+        auditLoading.value = false;
+      }
+    }
+
+    onMounted(loadBuiltin);
+
+    return {
+      tab, builtinEntities,
+      chatMessages, chatInput, llmLoading, llmDraftJson, sendChat, applyDraft,
+      designerTab, ruleModel, jsonSourceText, drlPreview, validateResult,
+      syncJsonSource, applyJsonSource, doValidate,
+      testScenario, testFactsText, testResult, testLoading, generateTestFacts, runTest,
+      auditRemark, auditLoading, auditMsg, submitForAudit
+    };
+  }
+}).use(ElementPlus, {locale: ElementPlus.zhCn}).mount('#app');
+</script>
+</body>
+</html>
